@@ -1,0 +1,10 @@
+{
+  "name": "Restaurant Orders",
+  "short_name": "Orders",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#ffffff",
+  "theme_color": "#b91c1c",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
