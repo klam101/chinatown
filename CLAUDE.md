@@ -10,7 +10,8 @@ and decisions before proposing features.
 - `apps/server` – Node.js + TypeScript backend (Fastify). Runs on the hub.
   - `src/app.ts` routes, `src/orders.ts` order logic, `src/menu.ts` menu,
     `src/ticket.ts` ticket layout + ESC/POS bytes, `src/printer.ts` network/console printers,
-    `src/db.ts` SQLite schema (built-in `node:sqlite`, no native modules).
+    `src/db.ts` SQLite schema (built-in `node:sqlite`, no native modules),
+    `src/menu-data.ts` the restaurant's menu (seeded into an empty database).
 - `apps/web` – React + TypeScript tablet app (Vite), installable as a PWA.
 - `shared/types.ts` – types used by both sides.
 
@@ -25,6 +26,10 @@ and decisions before proposing features.
 ## Conventions
 
 - Money is integer cents. Order numbers restart each business day.
+- Menu items keep the paper menu's number (`code`, e.g. "L6", "19"). Sizes (Pt/Qt) and protein
+  picks ("Chicken or Roast Pork") are option groups; the order must pick one option per group.
+- No migrations yet: a database with an older `user_version` is rebuilt on start. Replace this
+  with real migrations before the restaurant has live data.
 - An order is always saved even if printing fails; the API returns `print.status` and the
   cashier can reprint. Never lose an order because of the printer.
 - No printer configured (`PRINTER_HOST` empty) prints tickets to the server log.

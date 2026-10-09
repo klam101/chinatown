@@ -30,7 +30,9 @@ export function buildTicket(order: Order, kind: TicketKind = "new"): TicketLine[
   lines.push(RULE);
 
   for (const item of order.items) {
-    lines.push({ text: `${item.quantity} x ${item.name}`, style: "tall", bold: true });
+    const code = item.code ? `${item.code} ` : "";
+    lines.push({ text: `${item.quantity} x ${code}${item.name}`, style: "tall", bold: true });
+    if (item.options.length) lines.push({ text: `   ${item.options.join(" / ").toUpperCase()}`, style: "tall", bold: true });
     if (item.note) lines.push({ text: `   >> ${item.note}`, style: "tall" });
   }
 

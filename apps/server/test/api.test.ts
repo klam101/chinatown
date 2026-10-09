@@ -3,7 +3,7 @@ import { buildApp } from "../src/app.js";
 import { openDb } from "../src/db.js";
 import type { Printer } from "../src/printer.js";
 import { renderEscPos, renderText, type TicketLine } from "../src/ticket.js";
-import type { MenuCategory, OrderResult } from "../../../shared/types.js";
+import type { MenuCategory, MenuItem, OrderResult } from "../../../shared/types.js";
 
 class FakePrinter implements Printer {
   configured = true;
@@ -21,16 +21,72 @@ function setup(taxRate = 0) {
   return { app, printer };
 }
 
-async function firstItems(app: ReturnType<typeof setup>["app"]) {
+async function allItems(app: ReturnType<typeof setup>["app"]) {
   const menu = (await app.inject("/api/menu")).json() as MenuCategory[];
   return menu.flatMap((c) => c.items);
 }
 
+/** Simple items with no sizes or choices, for tests that don't care about options. */
+async function firstItems(app: ReturnType<typeof setup>["app"]) {
+  return (await allItems(app)).filter((i) => i.optionGroups.length === 0);
+}
+
+async function byCode(app: ReturnType<typeof setup>["app"], code: string) {
+  const item = (await allItems(app)).find((i) => i.code === code);
+  if (!item) throw new Error(`No menu item ${code}`);
+  return item;
+}
+
+const option = (item: MenuItem, name: string) =>
+  item.optionGroups.flatMap((g) => g.options).find((o) => o.name === name)!.id;
+
 describe("orders API", () => {
-  it("serves the sample menu on first run", async () => {
+  it("serves the restaurant menu on first run", async () => {
     const { app } = setup();
-    const items = await firstItems(app);
-    expect(items.length).toBeGreaterThan(5);
+    const menu = (await app.inject("/api/menu")).json() as MenuCategory[];
+    expect(menu[0].name).toBe("Lunch Special");
+    const items = menu.flatMap((c) => c.items);
+    expect(items).toHaveLength(182);
+    const codes = items.map((i) => i.code).filter(Boolean);
+    expect(new Set(codes).size).toBe(codes.length);
+
+    const tso = await byCode(app, "L6");
+    expect(tso).toMatchObject({ name: "General Tso's Chicken", priceCents: 635, spicy: true, optionGroups: [] });
+
+    const friedRice = await byCode(app, "19");
+    expect(friedRice.priceCents).toBe(495);
+    expect(friedRice.optionGroups.map((g) => [g.name, g.options.map((o) => `${o.name}+${o.extraCents}`)])).toEqual([
+      ["Size", ["Pt+0", "Qt+265"]],
+      ["Choice", ["Chicken+0", "Roast Pork+0"]],
+    ]);
+  });
+
+  it("prices and prints the chosen size and protein", async () => {
+    const { app, printer } = setup();
+    const friedRice = await byCode(app, "19");
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/orders",
+      payload: { type: "walk_in", items: [{ menuItemId: friedRice.id, quantity: 2, optionIds: [option(friedRice, "Qt"), option(friedRice, "Roast Pork")] }] },
+    });
+    expect(res.statusCode).toBe(201);
+    const { order } = res.json() as OrderResult;
+    expect(order.items[0]).toMatchObject({ code: "19", options: ["Qt", "Roast Pork"], unitPriceCents: 760 });
+    expect(order.subtotalCents).toBe(1520);
+    expect(printer.tickets[0]).toContain("2 x 19 Chicken or Roast Pork Fried Rice");
+    expect(printer.tickets[0]).toContain("QT / ROAST PORK");
+  });
+
+  it("requires exactly one pick from each option group", async () => {
+    const { app } = setup();
+    const friedRice = await byCode(app, "19");
+    const order = (optionIds: number[]) =>
+      app.inject({ method: "POST", url: "/api/orders", payload: { type: "walk_in", items: [{ menuItemId: friedRice.id, quantity: 1, optionIds }] } });
+
+    expect((await order([option(friedRice, "Qt")])).json().error).toBe("Pick one choice for Chicken or Roast Pork Fried Rice");
+    expect((await order([option(friedRice, "Pt"), option(friedRice, "Qt"), option(friedRice, "Chicken")])).statusCode).toBe(400);
+    const otherItem = await byCode(app, "20");
+    expect((await order([option(friedRice, "Pt"), option(friedRice, "Chicken"), option(otherItem, "Beef")])).statusCode).toBe(400);
   });
 
   it("creates an order, numbers it, totals it and prints a ticket", async () => {
@@ -57,7 +113,7 @@ describe("orders API", () => {
     expect(order.taxCents).toBe(Math.round(order.subtotalCents * 0.1));
     expect(print.status).toBe("printed");
     expect(printer.tickets[0]).toContain("#1  PHONE");
-    expect(printer.tickets[0]).toContain(`2 x ${a.name}`);
+    expect(printer.tickets[0]).toContain(`2 x ${a.code} ${a.name}`);
     expect(printer.tickets[0]).toContain(">> extra spicy");
     expect(printer.tickets[0]).toContain("NOTE: Pickup at 6");
 

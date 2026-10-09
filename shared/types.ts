@@ -4,25 +4,46 @@ export type OrderType = "walk_in" | "phone";
 export type OrderStatus = "open" | "ready" | "picked_up" | "cancelled";
 export type PrintStatus = "printed" | "failed" | "not_configured";
 
+export interface MenuOption {
+  id: number;
+  name: string;
+  /** Added to the item's base price when chosen (sizes cost more, proteins usually don't). */
+  extraCents: number;
+}
+
+/** A required pick of exactly one option, such as size (Pt/Qt) or protein (Chicken/Roast Pork). */
+export interface MenuOptionGroup {
+  name: string;
+  options: MenuOption[];
+}
+
 export interface MenuItem {
   id: number;
   categoryId: number;
+  /** The number printed on the paper menu, e.g. "L6" or "19". Empty when there is none. */
+  code: string;
   name: string;
   /** Optional second-language name for tickets, e.g. Chinese. */
   altName: string | null;
+  /** Price before options; the cheapest size when the item has sizes. */
   priceCents: number;
+  spicy: boolean;
   available: boolean;
+  optionGroups: MenuOptionGroup[];
 }
 
 export interface MenuCategory {
   id: number;
   name: string;
+  note: string | null;
   items: MenuItem[];
 }
 
 export interface NewOrderItem {
   menuItemId: number;
   quantity: number;
+  /** One option id from each of the item's option groups. */
+  optionIds?: number[];
   note?: string;
 }
 
@@ -37,8 +58,11 @@ export interface NewOrder {
 export interface OrderItem {
   id: number;
   menuItemId: number;
+  code: string;
   name: string;
   altName: string | null;
+  /** Chosen option names, e.g. ["Qt", "Chicken"]. */
+  options: string[];
   quantity: number;
   unitPriceCents: number;
   note: string | null;

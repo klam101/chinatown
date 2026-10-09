@@ -34,6 +34,7 @@ const newOrderSchema = {
         properties: {
           menuItemId: { type: "integer" },
           quantity: { type: "integer", minimum: 1, maximum: 99 },
+          optionIds: { type: "array", maxItems: 10, items: { type: "integer" } },
           note: { type: "string", maxLength: 200 },
         },
       },
@@ -70,7 +71,7 @@ export function buildApp({ db, printer, taxRate, webDist, logger = false }: AppO
 
   app.get("/api/menu", async () => getMenu(db));
 
-  app.post<{ Body: { categoryId: number; name: string; altName?: string; priceCents: number } }>(
+  app.post<{ Body: { categoryId: number; code?: string; name: string; altName?: string; priceCents: number; spicy?: boolean } }>(
     "/api/menu/items",
     {
       schema: {
@@ -79,9 +80,11 @@ export function buildApp({ db, printer, taxRate, webDist, logger = false }: AppO
           required: ["categoryId", "name", "priceCents"],
           properties: {
             categoryId: { type: "integer" },
+            code: { type: "string", maxLength: 10 },
             name: { type: "string", minLength: 1, maxLength: 80 },
             altName: { type: "string", maxLength: 80 },
             priceCents: { type: "integer", minimum: 0 },
+            spicy: { type: "boolean" },
           },
         },
       },
