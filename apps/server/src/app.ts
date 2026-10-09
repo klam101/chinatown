@@ -1,20 +1,55 @@
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import { existsSync } from "node:fs";
-import type { NewOrder, Order, OrderResult } from "../../../shared/types.js";
+import type { MenuItemInput, NewOrder, Order, OrderResult, Settings } from "../../../shared/types.js";
 import type { Db } from "./db.js";
-import { createMenuItem, getMenu, updateMenuItem } from "./menu.js";
+import {
+  createCategory,
+  createMenuItem,
+  getMenu,
+  MenuError,
+  removeMenuItem,
+  updateCategory,
+  updateMenuItem,
+} from "./menu.js";
 import { businessDate, createOrder, getOrder, listOrders, OrderError, setOrderStatus } from "./orders.js";
-import type { Printer } from "./printer.js";
+import { ConsolePrinter, NetworkPrinter, type Printer } from "./printer.js";
+import { getSettings, updateSettings } from "./settings.js";
 import { buildTicket, type TicketKind } from "./ticket.js";
 
 export interface AppOptions {
   db: Db;
-  printer: Printer;
-  taxRate: number;
+  /** Overrides the printer from settings (used by tests). */
+  printer?: Printer;
   webDist?: string;
   logger?: boolean;
 }
+
+const priceCents = { type: "integer", minimum: 0, maximum: 1_000_000 } as const;
+const menuItemProperties = {
+  categoryId: { type: "integer" },
+  code: { type: "string", maxLength: 10 },
+  name: { type: "string", minLength: 1, maxLength: 80 },
+  altName: { type: ["string", "null"], maxLength: 80 },
+  priceCents,
+  sizes: {
+    type: "array",
+    maxItems: 10,
+    items: {
+      type: "object",
+      required: ["name", "priceCents"],
+      properties: { name: { type: "string", minLength: 1, maxLength: 30 }, priceCents },
+    },
+  },
+  choices: { type: "array", maxItems: 20, items: { type: "string", minLength: 1, maxLength: 30 } },
+  spicy: { type: "boolean" },
+  available: { type: "boolean" },
+} as const;
+
+const categoryProperties = {
+  name: { type: "string", minLength: 1, maxLength: 60 },
+  note: { type: ["string", "null"], maxLength: 200 },
+} as const;
 
 const newOrderSchema = {
   type: "object",
@@ -44,10 +79,17 @@ const newOrderSchema = {
 
 const idParams = { type: "object", properties: { id: { type: "integer" } } } as const;
 
-export function buildApp({ db, printer, taxRate, webDist, logger = false }: AppOptions) {
+export function buildApp({ db, printer: printerOverride, webDist, logger = false }: AppOptions) {
   const app = Fastify({ logger });
 
+  function currentPrinter(): Printer {
+    if (printerOverride) return printerOverride;
+    const { printerHost, printerPort } = getSettings(db);
+    return printerHost ? new NetworkPrinter(printerHost, printerPort) : new ConsolePrinter();
+  }
+
   async function printTicket(order: Order, kind: TicketKind): Promise<OrderResult["print"]> {
+    const printer = currentPrinter();
     if (!printer.configured) {
       await printer.print(buildTicket(order, kind));
       return { status: "not_configured" };
@@ -62,62 +104,69 @@ export function buildApp({ db, printer, taxRate, webDist, logger = false }: AppO
   }
 
   app.setErrorHandler((err: Error & { validation?: unknown }, _req, reply) => {
-    if (err instanceof OrderError || err.validation) return reply.code(400).send({ error: err.message });
+    if (err instanceof OrderError || err instanceof MenuError || err.validation) return reply.code(400).send({ error: err.message });
     app.log.error(err);
     return reply.code(500).send({ error: "Something went wrong" });
   });
 
-  app.get("/api/health", async () => ({ ok: true, printer: printer.configured ? "network" : "console" }));
+  app.get("/api/health", async () => ({ ok: true, printer: currentPrinter().configured ? "network" : "console" }));
+
+  app.get("/api/settings", async () => getSettings(db));
+
+  app.patch<{ Body: Partial<Settings> }>(
+    "/api/settings",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            restaurantName: { type: "string", minLength: 1, maxLength: 80 },
+            taxRate: { type: "number", minimum: 0, maximum: 0.5 },
+            printerHost: { type: "string", maxLength: 255 },
+            printerPort: { type: "integer", minimum: 1, maximum: 65535 },
+          },
+        },
+      },
+    },
+    async (req) => updateSettings(db, req.body),
+  );
 
   app.get("/api/menu", async () => getMenu(db));
 
-  app.post<{ Body: { categoryId: number; code?: string; name: string; altName?: string; priceCents: number; spicy?: boolean } }>(
+  app.post<{ Body: { name: string; note?: string | null } }>(
+    "/api/menu/categories",
+    { schema: { body: { type: "object", required: ["name"], properties: categoryProperties } } },
+    async (req, reply) => reply.code(201).send(createCategory(db, req.body)),
+  );
+
+  app.patch<{ Params: { id: number }; Body: { name?: string; note?: string | null } }>(
+    "/api/menu/categories/:id",
+    { schema: { params: idParams, body: { type: "object", properties: categoryProperties } } },
+    async (req, reply) =>
+      updateCategory(db, req.params.id, req.body) ? { ok: true } : reply.code(404).send({ error: "Category not found" }),
+  );
+
+  app.post<{ Body: MenuItemInput & { categoryId: number; name: string } }>(
     "/api/menu/items",
-    {
-      schema: {
-        body: {
-          type: "object",
-          required: ["categoryId", "name", "priceCents"],
-          properties: {
-            categoryId: { type: "integer" },
-            code: { type: "string", maxLength: 10 },
-            name: { type: "string", minLength: 1, maxLength: 80 },
-            altName: { type: "string", maxLength: 80 },
-            priceCents: { type: "integer", minimum: 0 },
-            spicy: { type: "boolean" },
-          },
-        },
-      },
-    },
+    { schema: { body: { type: "object", required: ["categoryId", "name"], properties: menuItemProperties } } },
     async (req, reply) => reply.code(201).send(createMenuItem(db, req.body)),
   );
 
-  app.patch<{ Params: { id: number }; Body: { name?: string; altName?: string | null; priceCents?: number; available?: boolean } }>(
+  app.patch<{ Params: { id: number }; Body: MenuItemInput }>(
     "/api/menu/items/:id",
-    {
-      schema: {
-        params: idParams,
-        body: {
-          type: "object",
-          properties: {
-            name: { type: "string", minLength: 1, maxLength: 80 },
-            altName: { type: ["string", "null"], maxLength: 80 },
-            priceCents: { type: "integer", minimum: 0 },
-            available: { type: "boolean" },
-          },
-        },
-      },
-    },
-    async (req, reply) => {
-      const item = updateMenuItem(db, req.params.id, req.body);
-      return item ?? reply.code(404).send({ error: "Menu item not found" });
-    },
+    { schema: { params: idParams, body: { type: "object", properties: menuItemProperties } } },
+    async (req, reply) => updateMenuItem(db, req.params.id, req.body) ?? reply.code(404).send({ error: "Menu item not found" }),
+  );
+
+  app.delete<{ Params: { id: number } }>("/api/menu/items/:id", { schema: { params: idParams } }, async (req, reply) =>
+    removeMenuItem(db, req.params.id) ? { ok: true } : reply.code(404).send({ error: "Menu item not found" }),
   );
 
   app.get("/api/orders", async () => listOrders(db, businessDate(new Date())));
 
   app.post<{ Body: NewOrder }>("/api/orders", { schema: { body: newOrderSchema } }, async (req, reply) => {
-    const order = createOrder(db, req.body, { taxRate });
+    const order = createOrder(db, req.body, { taxRate: getSettings(db).taxRate });
     const print = await printTicket(order, "new");
     return reply.code(201).send({ order, print } satisfies OrderResult);
   });

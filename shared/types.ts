@@ -89,3 +89,28 @@ export interface OrderResult {
   order: Order;
   print: { status: PrintStatus; error?: string };
 }
+
+/** What the menu editor sends to create or change an item. */
+export interface MenuItemInput {
+  categoryId?: number;
+  code?: string;
+  name?: string;
+  altName?: string | null;
+  /** The price for an item without sizes. */
+  priceCents?: number;
+  /** Each size with its full price, e.g. Pt $4.95 and Qt $7.60. Empty for one-price items. */
+  sizes?: { name: string; priceCents: number }[];
+  /** Protein or style picks, e.g. ["Chicken", "Roast Pork"]. */
+  choices?: string[];
+  spicy?: boolean;
+  available?: boolean;
+}
+
+export interface Settings {
+  restaurantName: string;
+  /** Sales tax as a decimal, e.g. 0.08875. */
+  taxRate: number;
+  /** Kitchen printer address on the restaurant network; empty prints to the server log. */
+  printerHost: string;
+  printerPort: number;
+}

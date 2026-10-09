@@ -11,7 +11,8 @@ and decisions before proposing features.
   - `src/app.ts` routes, `src/orders.ts` order logic, `src/menu.ts` menu,
     `src/ticket.ts` ticket layout + ESC/POS bytes, `src/printer.ts` network/console printers,
     `src/db.ts` SQLite schema (built-in `node:sqlite`, no native modules),
-    `src/menu-data.ts` the restaurant's menu (seeded into an empty database).
+    `src/menu-data.ts` starter menu (seeded into an empty database only), `src/settings.ts`
+    restaurant settings (name, tax rate, printer) stored in the database.
 - `apps/web` – React + TypeScript tablet app (Vite), installable as a PWA.
 - `shared/types.ts` – types used by both sides.
 
@@ -34,4 +35,7 @@ and decisions before proposing features.
   cashier can reprint. Never lose an order because of the printer.
 - No printer configured (`PRINTER_HOST` empty) prints tickets to the server log.
 - Keep it working offline: no cloud calls in the order path.
+- Nothing restaurant-specific in code: menu, prices, tax and printer live in the database and
+  are edited in the app (Menu and Settings tabs). The product is meant to be sold to many
+  restaurants, so new per-restaurant values go in settings, not constants or env vars.
 - Node 22.13+ is required (`node:sqlite`).

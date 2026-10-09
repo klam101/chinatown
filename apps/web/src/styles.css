@@ -98,3 +98,28 @@ input { border: 1px solid var(--line); border-radius: 10px; padding: 12px; backg
 .option small { color: var(--muted); font-weight: 400; font-size: 14px; }
 .option.active { background: var(--ink); color: #fff; border-color: var(--ink); }
 .option.active small { color: #d1d5db; }
+
+.restaurant-name { margin-left: auto; font-weight: 700; color: var(--muted); }
+.link { color: var(--red); font-weight: 600; padding: 8px; }
+.danger-link { font-size: 14px; }
+
+.menu-editor, .settings { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; max-width: 980px; width: 100%; margin: 0 auto; }
+.category-fields { gap: 8px; }
+.edit-list { display: grid; gap: 10px; }
+.edit-item { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: grid; gap: 8px; }
+.edit-item.sold-out { background: var(--bg); }
+.edit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.edit-code { width: 72px; font-weight: 700; color: var(--red); }
+.edit-name { flex: 1; min-width: 200px; font-weight: 600; }
+.edit-choices { flex: 1; min-width: 200px; }
+.edit-label { width: 72px; color: var(--muted); font-size: 14px; }
+.money-input { display: inline-flex; align-items: center; gap: 4px; }
+.money-input input { width: 96px; }
+.size-input { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; }
+.size-name { width: 120px; }
+.edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.edit-actions .primary { font-size: 16px; padding: 12px 20px; }
+.add-item { padding: 16px; }
+.settings { max-width: 560px; }
+.settings label { display: grid; gap: 6px; font-weight: 600; }
+.item:disabled { opacity: 0.45; }
