@@ -20,10 +20,25 @@ export function createOrder(db: Db, input: NewOrder, opts: { taxRate: number; no
     const item = getMenuItem(db, line.menuItemId);
     if (!item) throw new OrderError(`Menu item ${line.menuItemId} does not exist`);
     if (!item.available) throw new OrderError(`${item.name} is not available`);
-    return { item, quantity: line.quantity, note: line.note?.trim() || null };
+
+    const optionIds = line.optionIds ?? [];
+    const chosen = item.optionGroups.map((group) => {
+      const picks = group.options.filter((o) => optionIds.includes(o.id));
+      if (picks.length !== 1) throw new OrderError(`Pick one ${group.name.toLowerCase()} for ${item.name}`);
+      return picks[0];
+    });
+    if (chosen.length !== optionIds.length) throw new OrderError(`Unknown option for ${item.name}`);
+
+    return {
+      item,
+      quantity: line.quantity,
+      options: chosen.map((o) => o.name),
+      unitPrice: item.priceCents + chosen.reduce((sum, o) => sum + o.extraCents, 0),
+      note: line.note?.trim() || null,
+    };
   });
 
-  const subtotal = lines.reduce((sum, l) => sum + l.item.priceCents * l.quantity, 0);
+  const subtotal = lines.reduce((sum, l) => sum + l.unitPrice * l.quantity, 0);
   const tax = Math.round(subtotal * opts.taxRate);
   const date = businessDate(now);
 
@@ -51,11 +66,21 @@ export function createOrder(db: Db, input: NewOrder, opts: { taxRate: number; no
         now.toISOString(),
       );
     const insertItem = db.prepare(
-      `INSERT INTO order_items (order_id, menu_item_id, name, alt_name, quantity, unit_price_cents, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO order_items (order_id, menu_item_id, code, name, alt_name, options, quantity, unit_price_cents, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const l of lines) {
-      insertItem.run(orderId, l.item.id, l.item.name, l.item.altName, l.quantity, l.item.priceCents, l.note);
+      insertItem.run(
+        orderId,
+        l.item.id,
+        l.item.code,
+        l.item.name,
+        l.item.altName,
+        JSON.stringify(l.options),
+        l.quantity,
+        l.unitPrice,
+        l.note,
+      );
     }
     db.exec("COMMIT");
     return getOrder(db, Number(orderId))!;
@@ -86,8 +111,10 @@ function toOrder(db: Db, row: OrderRow): Order {
     .all(row.id) as unknown as {
     id: number;
     menu_item_id: number;
+    code: string;
     name: string;
     alt_name: string | null;
+    options: string;
     quantity: number;
     unit_price_cents: number;
     note: string | null;
@@ -109,8 +136,10 @@ function toOrder(db: Db, row: OrderRow): Order {
       (i): OrderItem => ({
         id: i.id,
         menuItemId: i.menu_item_id,
+        code: i.code,
         name: i.name,
         altName: i.alt_name,
+        options: JSON.parse(i.options) as string[],
         quantity: i.quantity,
         unitPriceCents: i.unit_price_cents,
         note: i.note,
