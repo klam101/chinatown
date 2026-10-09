@@ -22,15 +22,16 @@ npm run dev
 Open http://localhost:5173. To try it on the iPad, connect it to the same Wi-Fi and open
 `http://<your-computer's-IP>:5173`. Without a printer, tickets appear in the terminal.
 
-## Connect a printer
+## Set up the restaurant
 
-Copy `.env.example` to `.env` and set the printer's IP address (print a self-test page
-from the printer to find it):
+Everything restaurant-specific is edited in the app, not in code:
 
-```
-PRINTER_HOST=192.168.1.50
-PRINTER_PORT=9100
-```
+- **Menu** tab: change prices (including Pt/Qt sizes), mark dishes sold out, add or remove
+  dishes and menu sections, and set protein choices like "Chicken, Roast Pork".
+- **Settings** tab: restaurant name, sales tax, and the kitchen printer's IP address
+  (print a self-test page from the printer to find it; the port is usually 9100).
+
+A new database starts with the starter menu in `apps/server/src/menu-data.ts`.
 
 ## Run it in the restaurant
 

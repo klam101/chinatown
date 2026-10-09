@@ -17,7 +17,7 @@ class FakePrinter implements Printer {
 
 function setup(taxRate = 0) {
   const printer = new FakePrinter();
-  const app = buildApp({ db: openDb(":memory:"), printer, taxRate });
+  const app = buildApp({ db: openDb(":memory:", { taxRate }), printer });
   return { app, printer };
 }
 
@@ -169,6 +169,91 @@ describe("orders API", () => {
     const res = (await app.inject({ method: "POST", url: `/api/orders/${order.id}/cancel` })).json() as OrderResult;
     expect(res.order.status).toBe("cancelled");
     expect(printer.tickets[1]).toContain("CANCELLED");
+  });
+});
+
+describe("menu editor and settings", () => {
+  it("changes a one-price item's price, and new orders use it", async () => {
+    const { app } = setup();
+    const tso = await byCode(app, "L6");
+    const res = await app.inject({ method: "PATCH", url: `/api/menu/items/${tso.id}`, payload: { priceCents: 1095 } });
+    expect(res.json()).toMatchObject({ priceCents: 1095 });
+    const order = (
+      await app.inject({ method: "POST", url: "/api/orders", payload: { type: "walk_in", items: [{ menuItemId: tso.id, quantity: 1 }] } })
+    ).json() as OrderResult;
+    expect(order.order.totalCents).toBe(1095);
+  });
+
+  it("sets each size's full price", async () => {
+    const { app } = setup();
+    const friedRice = await byCode(app, "19");
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/menu/items/${friedRice.id}`,
+      payload: { sizes: [{ name: "Pt", priceCents: 650 }, { name: "Qt", priceCents: 1050 }] },
+    });
+    const item = res.json() as MenuItem;
+    expect(item.priceCents).toBe(650);
+    expect(item.optionGroups[0].options.map((o) => [o.name, item.priceCents + o.extraCents])).toEqual([
+      ["Pt", 650],
+      ["Qt", 1050],
+    ]);
+    expect(item.optionGroups[1].options.map((o) => o.name)).toEqual(["Chicken", "Roast Pork"]);
+  });
+
+  it("adds an item with sizes and choices, then removes it from the menu", async () => {
+    const { app } = setup();
+    const [category] = (await app.inject("/api/menu")).json() as MenuCategory[];
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/menu/items",
+      payload: {
+        categoryId: category.id,
+        code: "L31",
+        name: "Salt & Pepper Shrimp or Chicken",
+        sizes: [{ name: "Pt", priceCents: 900 }, { name: "Qt", priceCents: 1400 }],
+        choices: ["Shrimp", "Chicken"],
+        spicy: true,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const item = created.json() as MenuItem;
+    expect(item).toMatchObject({ code: "L31", priceCents: 900, spicy: true });
+    expect(await byCode(app, "L31")).toBeTruthy();
+
+    expect((await app.inject({ method: "DELETE", url: `/api/menu/items/${item.id}` })).statusCode).toBe(200);
+    expect((await allItems(app)).find((i) => i.code === "L31")).toBeUndefined();
+    const order = await app.inject({ method: "POST", url: "/api/orders", payload: { type: "walk_in", items: [{ menuItemId: item.id, quantity: 1 }] } });
+    expect(order.statusCode).toBe(400);
+  });
+
+  it("rejects an item with a single size", async () => {
+    const { app } = setup();
+    const tso = await byCode(app, "L6");
+    const res = await app.inject({ method: "PATCH", url: `/api/menu/items/${tso.id}`, payload: { sizes: [{ name: "Pt", priceCents: 500 }] } });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("keeps past orders' prices when the menu price changes", async () => {
+    const { app } = setup();
+    const tso = await byCode(app, "L6");
+    await app.inject({ method: "POST", url: "/api/orders", payload: { type: "walk_in", items: [{ menuItemId: tso.id, quantity: 1 }] } });
+    await app.inject({ method: "PATCH", url: `/api/menu/items/${tso.id}`, payload: { priceCents: 2000 } });
+    const [order] = (await app.inject("/api/orders")).json() as OrderResult["order"][];
+    expect(order.totalCents).toBe(635);
+  });
+
+  it("stores settings, and tax uses the saved rate", async () => {
+    const { app } = setup();
+    const saved = await app.inject({ method: "PATCH", url: "/api/settings", payload: { restaurantName: "Golden Wok", taxRate: 0.1 } });
+    expect(saved.json()).toMatchObject({ restaurantName: "Golden Wok", taxRate: 0.1, printerPort: 9100 });
+    const tso = await byCode(app, "L6");
+    const { order } = (
+      await app.inject({ method: "POST", url: "/api/orders", payload: { type: "walk_in", items: [{ menuItemId: tso.id, quantity: 1 }] } })
+    ).json() as OrderResult;
+    expect(order.taxCents).toBe(64);
+    const bad = await app.inject({ method: "PATCH", url: "/api/settings", payload: { taxRate: 8 } });
+    expect(bad.statusCode).toBe(400);
   });
 });
 
